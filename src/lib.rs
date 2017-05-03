@@ -138,9 +138,8 @@ impl FontTexture {
         let font = collection.into_font().unwrap();
 
         // building the infos
-        let (texture_data, chr_infos) = unsafe {
-            build_font_image(font, characters_list, font_size)
-        };
+        let (texture_data, chr_infos) =
+            build_font_image(font, characters_list, font_size);
 
         // we load the texture in the display
         let texture = glium::texture::Texture2d::new(facade, &texture_data).unwrap();
@@ -151,12 +150,6 @@ impl FontTexture {
         })
     }
 }
-
-/*impl glium::uniforms::AsUniformValue for FontTexture {
-    fn as_uniform_value(&self) -> glium::uniforms::UniformValue {
-        glium::uniforms::AsUniformValue::as_uniform_value(&self.texture)
-    }
-}*/
 
 impl TextSystem {
     /// Builds a new text system that must be used to build `TextDisplay` objects.
@@ -416,8 +409,8 @@ pub fn draw<F, S: ?Sized, M>(text: &TextDisplay<F>, system: &TextSystem, target:
                 &params).unwrap();
 }
 
-unsafe fn build_font_image(font: rusttype::Font, characters_list: Vec<char>, font_size: u32)
-                           -> (TextureData, Vec<(char, CharacterInfos)>)
+fn build_font_image(font: rusttype::Font, characters_list: Vec<char>, font_size: u32)
+                    -> (TextureData, Vec<(char, CharacterInfos)>)
 {
     use std::iter;
 
@@ -444,7 +437,7 @@ unsafe fn build_font_image(font: rusttype::Font, characters_list: Vec<char>, fon
 
     // now looping through the list of characters, filling the texture and returning the informations
     let mut em_pixels = font_size as f32;
-    let mut characters_infos: Vec<(char, CharacterInfos)> = characters_list.into_iter().filter_map(|character| {
+    let mut characters_infos: Vec<_> = characters_list.into_iter().filter_map(|character| {
         struct Bitmap {
             rows   : i32,
             width  : i32,
@@ -468,7 +461,7 @@ unsafe fn build_font_image(font: rusttype::Font, characters_list: Vec<char>, fon
             let y = y;
             buffer[(y * bb.width() as u32 + x) as usize] = (v * 255.0) as u8;
         });
-        let bitmap : Bitmap = Bitmap {
+        let bitmap = Bitmap {
             rows   : bb.height(),
             width  : bb.width(),
             buffer : buffer
