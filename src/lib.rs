@@ -37,14 +37,15 @@ extern crate rusttype;
 #[macro_use]
 extern crate glium;
 
-use glium::DrawParameters;
-use glium::backend::Context;
-use glium::backend::Facade;
 use std::borrow::Cow;
 use std::default::Default;
 use std::io::Read;
 use std::ops::Deref;
 use std::rc::Rc;
+
+use glium::DrawParameters;
+use glium::backend::Context;
+use glium::backend::Facade;
 
 /// Texture which contains the characters of the font.
 pub struct FontTexture {
@@ -127,19 +128,21 @@ impl FontTexture {
     }
 
     /// Creates a new texture representing a font stored in a `FontTexture`.
-    pub fn new<R, F>(facade: &F, font: R, font_size: u32, characters_list : Vec<char>)
-                     -> Result<FontTexture, ()> where R: Read, F: Facade
+    /// This function is extra slow and will take about `font_size ** 2 *
+    /// characters_list.len()` time.
+    pub fn new<R, F, I>(facade: &F, font: R, font_size: u32, characters_list: I)
+                        -> Result<FontTexture, ()>
+        where R: Read, F: Facade, I: IntoIterator<Item=char>
     {
-
         // building the freetype face object
         let font: Vec<u8> = font.bytes().map(|c| c.unwrap()).collect();
 
-        let collection = ::rusttype::FontCollection::from_bytes(&font[..]);
+        let collection = rusttype::FontCollection::from_bytes(&font[..]);
         let font = collection.into_font().unwrap();
 
         // building the infos
         let (texture_data, chr_infos) =
-            build_font_image(font, characters_list, font_size);
+            build_font_image(font, characters_list.into_iter().collect(), font_size);
 
         // we load the texture in the display
         let texture = glium::texture::Texture2d::new(facade, &texture_data).unwrap();
@@ -269,15 +272,14 @@ impl<F> TextDisplay<F> where F: Deref<Target=FontTexture> {
         let mut index_buffer_data = Vec::with_capacity(text.len() * 6);
 
         // iterating over the characters of the string
-        for character in text.chars() {     // FIXME: wrong, but only thing stable
-            let infos = match self.texture.character_infos
-                .iter().find(|&&(chr, _)| chr == character)
-            {
-                Some(infos) => infos,
-                None => continue        // character not found in the font, ignoring it
-            };
-            let infos = infos.1;
-
+        // FIXME: wrong, but only thing stable
+        for infos in text.chars()
+            .filter_map(|x| {
+                self.texture.character_infos.iter()
+                    .find(|&&(chr, _)| chr == x).map(|y| y.1)
+            }).collect::<Vec<_>>()
+            // collect required because we need to further borrow text mutably
+        {
             self.is_empty = false;
 
             // adding the quad in the index buffer
@@ -337,38 +339,103 @@ impl<F> TextDisplay<F> where F: Deref<Target=FontTexture> {
 
         if !vertex_buffer_data.len() != 0 {
             // building the vertex buffer
-            self.vertex_buffer = Some(glium::VertexBuffer::new(&self.context,
-                                                               &vertex_buffer_data).unwrap());
+            self.vertex_buffer = Some(glium::VertexBuffer::new(
+                &self.context,
+                &vertex_buffer_data
+            ).unwrap());
 
             // building the index buffer
-            self.index_buffer = Some(glium::IndexBuffer::new(&self.context,
-                                     glium::index::PrimitiveType::TrianglesList,
-                                     &index_buffer_data).unwrap());
+            self.index_buffer = Some(glium::IndexBuffer::new(
+                &self.context,
+                glium::index::PrimitiveType::TrianglesList,
+                &index_buffer_data
+            ).unwrap());
         }
     }
 }
 
+/// Draws text.
+///
+/// Default sampling behavior is default sampling behavior except with linear
+/// magnify and minify filters.  Default blending is `SourceAlpha`,
+/// `OneMinusSourceAlpha`.
 ///
 /// ## About the matrix
 ///
-/// The matrix must be column-major post-muliplying (which is the usual way to do in OpenGL).
+/// The matrix must be column-major post-muliplying (which is the usual way to
+/// do in OpenGL).
 ///
-/// One unit in height corresponds to a line of text, but the text can go above or under.
-/// The bottom of the line is at `0.0`, the top is at `1.0`.
-/// You need to adapt your matrix by taking these into consideration.
-pub fn draw<F, S: ?Sized, M>(text: &TextDisplay<F>, system: &TextSystem, target: &mut S,
-                             matrix: M, color: (f32, f32, f32, f32))
-                             where S: glium::Surface, M: Into<[[f32; 4]; 4]>,
-                                   F: Deref<Target=FontTexture>
+/// One unit in height corresponds to a line of text, but the text can go above
+/// or under.  The bottom of the line is at `0.0`, the top is at `1.0`.  You
+/// need to adapt your matrix by taking these into consideration.
+pub fn draw<F, S: ?Sized, M>(
+    text: &TextDisplay<F>,
+    system: &TextSystem,
+    target: &mut S,
+    matrix: M,
+    color: (f32, f32, f32, f32)
+) -> Result<(), glium::DrawError>
+    where S: glium::Surface,
+          M: Into<[[f32; 4]; 4]>,
+          F: Deref<Target=FontTexture>
+{
+    let sampler_behavior = glium::uniforms::SamplerBehavior {
+        magnify_filter: glium::uniforms::MagnifySamplerFilter::Linear,
+        minify_filter: glium::uniforms::MinifySamplerFilter::Linear,
+        .. Default::default()
+    };
+
+    let draw_parameters = {
+        use glium::BlendingFunction::Addition;
+        use glium::LinearBlendingFactor::*;
+
+        let blending_function = Addition {
+            source: SourceAlpha,
+            destination: OneMinusSourceAlpha,
+        };
+
+        DrawParameters {
+            blend: glium::Blend {
+                color: blending_function,
+                alpha: blending_function,
+                constant_value: (1.0, 1.0, 1.0, 1.0),
+            },
+            .. Default::default()
+        }
+    };
+    draw_with_params(text, system, target, matrix, color,
+                     sampler_behavior, draw_parameters)
+}
+
+/// A more advanced draw call which additionally takes user-defined
+/// `sample_behavior` and `draw_parameters`.
+pub fn draw_params<F, S: ?Sized, M>(
+    text: &TextDisplay<F>,
+    system: &TextSystem,
+    target: &mut S,
+    matrix: M,
+    color: (f32, f32, f32, f32),
+    sampler_behavior: glium::uniforms::SamplerBehavior,
+    draw_parameters: glium::DrawParameters,
+) -> Result<(), glium::DrawError>
+    where S: glium::Surface,
+          M: Into<[[f32; 4]; 4]>,
+          F: Deref<Target=FontTexture>
 {
     let matrix = matrix.into();
 
-    let &TextDisplay { ref vertex_buffer, ref index_buffer, ref texture, is_empty, .. } = text;
+    let &TextDisplay {
+        ref vertex_buffer,
+        ref index_buffer,
+        ref texture,
+        is_empty,
+        ..
+    } = text;
     let color = [color.0, color.1, color.2, color.3];
 
     // returning if nothing to draw
     if is_empty || vertex_buffer.is_none() || index_buffer.is_none() {
-        return;
+        return Ok(());
     }
 
     let vertex_buffer = vertex_buffer.as_ref().unwrap();
@@ -377,36 +444,11 @@ pub fn draw<F, S: ?Sized, M>(text: &TextDisplay<F>, system: &TextSystem, target:
     let uniforms = uniform! {
         matrix: matrix,
         color: color,
-        tex: glium::uniforms::Sampler(&texture.texture, glium::uniforms::SamplerBehavior {
-            magnify_filter: glium::uniforms::MagnifySamplerFilter::Linear,
-            minify_filter: glium::uniforms::MinifySamplerFilter::Linear,
-            .. Default::default()
-        })
+        tex: glium::uniforms::Sampler(&texture.texture, sampler_behavior)
     };
 
-
-    let params = {
-        use glium::BlendingFunction::Addition;
-        use glium::LinearBlendingFactor::*;
-
-        let blending_function = Addition {
-            source: SourceAlpha,
-            destination: OneMinusSourceAlpha
-        };
-
-        let blend = glium::Blend {
-            color: blending_function,
-            alpha: blending_function,
-            constant_value: (1.0, 1.0, 1.0, 1.0),
-        };
-
-        DrawParameters {
-            blend: blend,
-            .. Default::default()
-        }
-    };
     target.draw(vertex_buffer, index_buffer, &system.program, &uniforms,
-                &params).unwrap();
+                &draw_parameters)
 }
 
 fn build_font_image(font: rusttype::Font, characters_list: Vec<char>, font_size: u32)
@@ -419,64 +461,73 @@ fn build_font_image(font: rusttype::Font, characters_list: Vec<char>, font_size:
 
     // this variable will store the texture data
     // we set an arbitrary capacity that we think will match what we will need
-    let mut texture_data: Vec<f32> = Vec::with_capacity(characters_list.len() *
-                                                        font_size as usize * font_size as usize);
+    let mut texture_data: Vec<f32> = Vec::with_capacity(
+        characters_list.len() * font_size as usize * font_size as usize
+    );
 
-    // the width is chosen more or less arbitrarily, because we can store everything as long as
-    //  the texture is at least as wide as the widest character
-    // we just try to estimate a width so that width ~= height
+    // the width is chosen more or less arbitrarily, because we can store
+    // everything as long as the texture is at least as wide as the widest
+    // character we just try to estimate a width so that width ~= height
     let texture_width = get_nearest_po2(std::cmp::max(font_size * 2 as u32,
         ((((characters_list.len() as u32) * font_size * font_size) as f32).sqrt()) as u32));
 
-    // we store the position of the "cursor" in the destination texture
-    // this cursor points to the top-left pixel of the next character to write on the texture
+    // we store the position of the "cursor" in the destination texture this
+    // cursor points to the top-left pixel of the next character to write on the
+    // texture
     let mut cursor_offset = (0u32, 0u32);
 
     // number of rows to skip at next carriage return
     let mut rows_to_skip = 0u32;
 
-    // now looping through the list of characters, filling the texture and returning the informations
-    let mut em_pixels = font_size as f32;
-    let mut characters_infos: Vec<_> = characters_list.into_iter().filter_map(|character| {
+    // now looping through the list of characters, filling the texture and
+    // returning the informations
+    // TODO: Fix letters with undercarriage
+    // TODO: Fix whitespace
+    let characters_infos: Vec<_> = characters_list.into_iter().filter_map(|character| {
         struct Bitmap {
-            rows   : i32,
-            width  : i32,
-            buffer : Vec<u8>
+            rows: i32,
+            width: i32,
+            buffer: Vec<u8>
         }
         // loading wanted glyph in the font face
         // hope scale will set the right pixel size
-        let scaled_glyph = font.glyph(character).expect("no glyph for char")
-            .scaled(::rusttype::Scale {x : font_size as f32, y : font_size as f32 });
+        let scaled_glyph = if let Some(glyph) = font.glyph(character) {
+            glyph.scaled(rusttype::Scale {x: font_size as f32,
+                                          y: font_size as f32})
+        } else {
+            return None
+        };
         let h_metrics = scaled_glyph.h_metrics();
-        let glyph = scaled_glyph
-            .positioned(::rusttype::Point {x : 0.0, y : 0.0 });
+        let glyph = scaled_glyph.positioned(rusttype::Point {x: 0.0, y: 0.0});
         let bb = glyph.pixel_bounding_box();
         // if no bounding box - its now valid glyph?
-        let bb = if let Some(bb) = bb { bb } else { return None;};
+        let bb = if let Some(bb) = bb {bb} else {
+            // '\u{0}'
+            // '\u{8}'
+            // '\t'
+            // '\r'
+            // '\u{1d}'
+            // ' '
+            // '\u{a0}'
+            return None
+        };
 
         let mut buffer = vec![0; (bb.height() * bb.width()) as usize];
-
         glyph.draw(|x, y, v| {
-            let x = x;
-            let y = y;
             buffer[(y * bb.width() as u32 + x) as usize] = (v * 255.0) as u8;
         });
         let bitmap = Bitmap {
-            rows   : bb.height(),
-            width  : bb.width(),
-            buffer : buffer
+            rows: bb.height(),
+            width: bb.width(),
+            buffer: buffer
         };
 
         // adding a left margin before our character to prevent artifacts
         cursor_offset.0 += MARGIN;
 
-        // computing em_pixels
-        // FIXME: this is hacky
-        if character == 'M' {
-            em_pixels = bitmap.rows as f32;
-        }
+        // carriage return our cursor if we don't have enough room to write the
+        // next caracter
 
-        // carriage return our cursor if we don't have enough room to write the next caracter
         // we add a margin to prevent artifacts
         if cursor_offset.0 + (bitmap.width as u32) + MARGIN >= texture_width {
             assert!(bitmap.width as u32 <= texture_width);       // if this fails, we should increase texture_width
@@ -495,16 +546,18 @@ fn build_font_image(font: rusttype::Font, characters_list: Vec<char>, font_size:
         // copying the data to the texture
         let offset_x_before_copy = cursor_offset.0;
         if bitmap.rows >= 1 {
-            let destination = &mut texture_data[(cursor_offset.0 + cursor_offset.1 * texture_width) as usize ..];
+            let destination = &mut texture_data[
+                (cursor_offset.0 + cursor_offset.1 * texture_width) as usize ..
+            ];
             let source = &bitmap.buffer;
-            //ylet source = std::slice::from_raw_parts(source, destination.len());
 
             for y in 0 .. bitmap.rows as u32 {
                 let source = &source[(y * bitmap.width as u32) as usize ..];
                 let destination = &mut destination[(y * texture_width) as usize ..];
 
                 for x in 0 .. bitmap.width {
-                    // the values in source are bytes between 0 and 255, but we want floats between 0 and 1
+                    // the values in source are bytes between 0 and 255, but we
+                    // want floats between 0 and 1
                     let val: u8 = *source.get(x as usize).unwrap();
                     let val = (val as f32) / (std::u8::MAX as f32);
                     let dest = destination.get_mut(x as usize).unwrap();
@@ -543,7 +596,8 @@ fn build_font_image(font: rusttype::Font, characters_list: Vec<char>, font_size:
     assert!((texture_data.len() as u32 % texture_width) == 0);
     let texture_height = (texture_data.len() as u32 / texture_width) as f32;
     let float_texture_width = texture_width as f32;
-    for chr in characters_infos.iter_mut() {
+    let em_pixels = font_size as f32;
+    let characters_infos = characters_infos.into_iter().map(|mut chr| {
         chr.1.tex_size.0 /= float_texture_width;
         chr.1.tex_size.1 /= texture_height;
         chr.1.tex_coords.0 /= float_texture_width;
@@ -553,7 +607,8 @@ fn build_font_image(font: rusttype::Font, characters_list: Vec<char>, font_size:
         chr.1.left_padding /= em_pixels;
         chr.1.right_padding /= em_pixels;
         chr.1.height_over_line /= em_pixels;
-    }
+        chr
+    }).collect();
 
     // returning
     (TextureData {
