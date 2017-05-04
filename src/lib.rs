@@ -428,7 +428,7 @@ unsafe fn build_font_image(font: rusttype::Font, characters_list: Vec<char>, fon
     const MARGIN: u32 = 2;
 
     // glyph size for characters not presented in font.
-    let invalid_character_width = font_size / 4;
+    let invalid_character_width = font_size / 2;
 
     // this variable will store the texture data
     // we set an arbitrary capacity that we think will match what we will need
