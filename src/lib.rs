@@ -292,7 +292,7 @@ impl FontTexture {
         // building the freetype face object
         let font: Vec<u8> = font.bytes().map(|c| c.unwrap()).collect();
 
-        let collection = ::rusttype::FontCollection::from_bytes(&font[..]);
+        let collection = ::rusttype::FontCollection::from_bytes(&font[..]).unwrap();
         let font = collection.into_font().unwrap();
 
         // building the infos
@@ -646,7 +646,6 @@ fn build_font_image<I>(font: rusttype::Font, characters_list: I, font_size: u32)
         // loading wanted glyph in the font face
         // hope scale will set the right pixel size
         let scaled_glyph = font.glyph(character)
-            .ok_or_else(|| Error::NoGlyph(character))?
             .scaled(::rusttype::Scale {x : font_size as f32, y : font_size as f32 });
         let h_metrics = scaled_glyph.h_metrics();
         let glyph = scaled_glyph
