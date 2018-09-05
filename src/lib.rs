@@ -284,7 +284,7 @@ implement_vertex!(VertexFormat, position, tex_coords);
 impl FontTexture {
     /// Vec<char> of complete ASCII range (from 0 to 255 bytes)
     pub fn ascii_character_list() -> Vec<char> {
-        (0 .. 255).filter_map(|c| ::std::char::from_u32(c)).collect()
+        (0 .. 255).filter_map(::std::char::from_u32).collect()
     }
 
     /// Creates a new texture representing a font stored in a `FontTexture`.
@@ -305,13 +305,13 @@ impl FontTexture {
 
         // building the infos
         let (texture_data, chr_infos) =
-            build_font_image(font, characters_list.into_iter(), font_size)?;
+            build_font_image(&font, characters_list.into_iter(), font_size)?;
 
         // we load the texture in the display
         let texture = glium::texture::Texture2d::new(facade, &texture_data).unwrap();
 
         Ok(FontTexture {
-            texture: texture,
+            texture,
             character_infos: chr_infos,
         })
     }
@@ -402,7 +402,7 @@ impl<F> TextDisplay<F> where F: Deref<Target=FontTexture> {
     pub fn new(system: &TextSystem, texture: F, text: &str) -> TextDisplay<F> {
         let mut text_display = TextDisplay {
             context: system.context.clone(),
-            texture: texture,
+            texture,
             vertex_buffer: None,
             index_buffer: None,
             total_text_width: 0.0,
@@ -433,7 +433,7 @@ impl<F> TextDisplay<F> where F: Deref<Target=FontTexture> {
         self.index_buffer = None;
 
         // returning if no text
-        if text.len() == 0 {
+        if text.is_empty() {
             return;
         }
 
@@ -560,11 +560,11 @@ pub fn draw<F, S: ?Sized, M>(
         };
 
         DrawParameters {
-            blend: blend,
+            blend,
             .. Default::default()
         }
     };
-    draw_with_params(text, system, target, matrix, color, behavior, params)
+    draw_with_params(text, system, target, matrix, color, behavior, &params)
 }
 
 /// More advanced variant of `draw` which also takes sampler behavior and draw
@@ -576,7 +576,7 @@ pub fn draw_with_params<F, S: ?Sized, M>(
     matrix: M,
     color: (f32, f32, f32, f32),
     sampler_behavior: glium::uniforms::SamplerBehavior,
-    parameters: DrawParameters
+    parameters: &DrawParameters
 ) -> Result<(), glium::DrawError>
     where S: glium::Surface,
           M: Into<[[f32; 4]; 4]>,
@@ -610,7 +610,7 @@ pub fn draw_with_params<F, S: ?Sized, M>(
     target.draw(vertex_buffer, index_buffer, &system.program, &uniforms, &parameters)
 }
 
-fn build_font_image<I>(font: rusttype::Font, characters_list: I, font_size: u32)
+fn build_font_image<I>(font: &rusttype::Font, characters_list: I, font_size: u32)
                        -> Result<(TextureData, HashMap<char, CharacterInfos>), Error>
     where I: Iterator<Item=char>
 {
@@ -680,7 +680,7 @@ fn build_font_image<I>(font: rusttype::Font, characters_list: I, font_size: u32)
         let bitmap : Bitmap = Bitmap {
             rows   : bb.height(),
             width  : bb.width(),
-            buffer : buffer
+            buffer
         };
 
         // adding a left margin before our character to prevent artifacts
@@ -715,9 +715,9 @@ fn build_font_image<I>(font: rusttype::Font, characters_list: I, font_size: u32)
 
                 for x in 0 .. bitmap.width {
                     // the values in source are bytes between 0 and 255, but we want floats between 0 and 1
-                    let val: u8 = *source.get(x as usize).unwrap();
-                    let val = (val as f32) / (std::u8::MAX as f32);
-                    let dest = destination.get_mut(x as usize).unwrap();
+                    let val: u8 = source[x as usize];
+                    let val = f32::from(val) / f32::from(std::u8::MAX);
+                    let dest = &mut destination[x as usize];
                     *dest = val;
                 }
             }
