@@ -16,7 +16,7 @@ fn main() {
     use std::fs::File;
 
     let mut events_loop = EventsLoop::new();
-    let window = WindowBuilder::new().with_dimensions(LogicalSize::new(1024f64, 768f64));
+    let window = WindowBuilder::new().with_dimensions((1024, 768).into());
     let context = ContextBuilder::new();
     let display = Display::new(window, context, &events_loop).unwrap();
 
