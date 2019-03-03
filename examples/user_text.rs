@@ -10,7 +10,6 @@ use glium::Display;
 use glium::glutin::{ WindowBuilder, ContextBuilder, EventsLoop };
 use glium::glutin::WindowEvent::{ CloseRequested, ReceivedCharacter };
 use glium::glutin::Event::WindowEvent;
-use glium::glutin::dpi::LogicalSize;
 
 fn main() {
     use std::fs::File;
