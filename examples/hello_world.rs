@@ -6,13 +6,15 @@ use std::thread;
 use std::time::Duration;
 use glium::Surface;
 use glium::Display;
-use glium::glutin::{ WindowBuilder, ContextBuilder, EventsLoop };
-use glium::glutin::WindowEvent::CloseRequested;
-use glium::glutin::Event::WindowEvent;
+use glium::glutin::ContextBuilder;
+use glium::glutin::dpi::PhysicalSize;
+use glium::glutin::event_loop::{ EventLoop, ControlFlow };
+use glium::glutin::window::WindowBuilder;
+use glium::glutin::event::{ Event::WindowEvent, WindowEvent::CloseRequested};
 
 fn main() {
-    let mut events_loop = EventsLoop::new();
-    let window = WindowBuilder::new().with_dimensions((1024, 768).into());
+    let events_loop = EventLoop::new();
+    let window = WindowBuilder::new().with_inner_size(PhysicalSize::new(1024, 768));
     let context = ContextBuilder::new();
     let display = Display::new(window, context, &events_loop).unwrap();
 
@@ -20,13 +22,16 @@ fn main() {
 
     let font = glium_text::FontTexture::new(&display, &include_bytes!("font.ttf")[..], 70, glium_text::FontTexture::ascii_character_list()).unwrap();
 
-    let text = glium_text::TextDisplay::new(&system, &font, "Hello world!");
-    let text_width = text.get_width();
-    println!("Text width: {:?}", text_width);
 
     let sleep_duration = Duration::from_millis(17);
 
-    loop {
+    events_loop.run(move |event, _, control_flow| {
+        *control_flow = ControlFlow::Wait;
+
+        let text = glium_text::TextDisplay::new(&system, &font, "Hello world!");
+        let text_width = text.get_width();
+        println!("Text width: {:?}", text_width);
+
         let (w, h) = display.get_framebuffer_dimensions();
 
         let matrix:[[f32; 4]; 4] = cgmath::Matrix4::new(
@@ -43,19 +48,13 @@ fn main() {
 
         thread::sleep(sleep_duration);
 
-        let mut closing = false;
-        events_loop.poll_events(|event| {
-            if let WindowEvent { event, .. } = event {
-                match event {
-                    CloseRequested => {
-                        closing = true;
-                    },
-                    _ => ()
-                }
+        if let WindowEvent { event, .. } = event {
+            match event {
+                CloseRequested => {
+                    *control_flow = ControlFlow::Exit;
+                },
+                _ => ()
             }
-        });
-        if closing {
-            break;
         }
-    }
+    });
 }

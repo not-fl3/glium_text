@@ -9,15 +9,15 @@ keywords = ["text", "opengl"]
 license = "MIT"
 
 [dependencies]
-rusttype = "0.7"
+rusttype = "0.8"
 
 [dependencies.glium]
-version = "0.23"
+version = "0.26"
 default-features = false
 
 [dev-dependencies]
 cgmath = "0.17"
 
 [dev-dependencies.glium]
-version = "0.23"
+version = "0.26"
 features = ["glutin"]
