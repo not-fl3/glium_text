@@ -2,20 +2,21 @@ extern crate glium;
 extern crate glium_text_rusttype as glium_text;
 extern crate cgmath;
 
+use std::fs::File;
 use std::path::Path;
 use std::thread;
 use std::time::Duration;
 use glium::Surface;
 use glium::Display;
-use glium::glutin::{ WindowBuilder, ContextBuilder, EventsLoop };
-use glium::glutin::WindowEvent::{ CloseRequested, ReceivedCharacter };
-use glium::glutin::Event::WindowEvent;
+use glium::glutin::ContextBuilder;
+use glium::glutin::dpi::PhysicalSize;
+use glium::glutin::event_loop::{ EventLoop, ControlFlow };
+use glium::glutin::window::WindowBuilder;
+use glium::glutin::event::{ Event::WindowEvent, WindowEvent::{ CloseRequested, ReceivedCharacter }};
 
 fn main() {
-    use std::fs::File;
-
-    let mut events_loop = EventsLoop::new();
-    let window = WindowBuilder::new().with_dimensions((1024, 768).into());
+    let events_loop = EventLoop::new();
+    let window = WindowBuilder::new().with_inner_size(PhysicalSize::new(1024, 768));
     let context = ContextBuilder::new();
     let display = Display::new(window, context, &events_loop).unwrap();
 
@@ -32,7 +33,9 @@ fn main() {
 
     println!("Type with your keyboard");
 
-    'main: loop {
+    events_loop.run(move |event, _, control_flow| {
+        *control_flow = ControlFlow::Wait;
+
         let text = glium_text::TextDisplay::new(&system, &font, &buffer);
 
         let (w, h) = display.get_framebuffer_dimensions();
@@ -51,22 +54,16 @@ fn main() {
 
         thread::sleep(sleep_duration);
 
-        let mut closing = false;
-        events_loop.poll_events(|event| {
-            if let WindowEvent { event, .. } = event {
-                match event {
-                    ReceivedCharacter('\r') => buffer.clear(),
-                    ReceivedCharacter(c) if c as u32 == 8 => { buffer.pop(); },
-                    ReceivedCharacter(chr) => buffer.push(chr),
-                    CloseRequested => {
-                        closing = true;
-                    },
-                    _ => ()
-                }
+        if let WindowEvent { event, .. } = event {
+            match event {
+                ReceivedCharacter('\r') => buffer.clear(),
+                ReceivedCharacter(c) if c as u32 == 8 => { buffer.pop(); },
+                ReceivedCharacter(chr) => buffer.push(chr),
+                CloseRequested => {
+                    *control_flow = ControlFlow::Exit;
+                },
+                _ => ()
             }
-        });
-        if closing {
-            break;
         }
-    }
+    });
 }
