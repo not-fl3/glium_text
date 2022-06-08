@@ -6,14 +6,14 @@ keywords = ["text", "opengl"]
 license = "MIT"
 name = "glium_text_rusttype"
 repository = "https://github.com/not-fl3/glium_text_rusttype"
-version = "0.3.5"
+version = "0.3.6"
 
 [dependencies]
 rusttype = "0.8"
 
 [dependencies.glium]
 default-features = false
-version = "0.29.1"
+version = ">=0.29.1, <0.32.0"
 
 [dev-dependencies]
 cgmath = "0.18"
